@@ -86,6 +86,7 @@ export function ExecutionModal() {
           vault: vaultConfig.address,
           token: selectedToken.address,
           amount: parsedAmount,
+          recipient: address,
           owner: address,
           slippageBps: 50,
         });
