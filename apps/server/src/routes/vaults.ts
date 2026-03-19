@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { handleToolCall } from "../tools/vault-tools";
+import { handleToolCall } from "../tools/vault-tools.js";
 
 export const vaultsRoute = new Hono();
 

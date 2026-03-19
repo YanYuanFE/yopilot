@@ -1,25 +1,44 @@
-import Anthropic from "@anthropic-ai/sdk";
 import {
   createApiClient,
-  getVaultSnapshot,
+  getVaults,
   getVaultYieldTimeseries,
   getVaultTvlTimeseries,
   getUserTransactionHistory,
-  getVaults,
-  VAULTS,
-  CHAIN_ID_TO_NETWORK,
-  type VaultId,
 } from "@yo-protocol/core";
 import type { Address } from "viem";
 
 const apiClient = createApiClient();
 
-// Helper to get network name from chain ID
-function getNetwork(chainId: number): "ethereum" | "base" | "arbitrum" {
-  return CHAIN_ID_TO_NETWORK[chainId as keyof typeof CHAIN_ID_TO_NETWORK];
-}
+// Vault ID -> network mapping
+const VAULT_NETWORK: Record<string, "ethereum" | "base"> = {
+  yoETH: "base",
+  yoBTC: "base",
+  yoUSD: "base",
+  yoEUR: "base",
+  yoGOLD: "ethereum",
+  yoUSDT: "ethereum",
+};
 
-export function getVaultTools(): Anthropic.Tool[] {
+const VAULT_ADDRESSES: Record<string, Address> = {
+  yoETH: "0x3A43AEC53490CB9Fa922847385D82fe25d0E9De7",
+  yoBTC: "0xbCbc8cb4D1e8ED048a6276a5E94A3e952660BcbC",
+  yoUSD: "0x0000000f2eB9f69274678c76222B35eEc7588a65",
+  yoEUR: "0x50c749aE210D3977ADC824AE11F3c7fd10c871e9",
+  yoGOLD: "0x586675A3a46B008d8408933cf42d8ff6c9CC61a1",
+  yoUSDT: "0xb9a7da9e90D3B428083BAe04b860faA6325b721e",
+};
+
+type ToolDef = {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required: string[];
+  };
+};
+
+export function getVaultTools(): ToolDef[] {
   return [
     {
       name: "get_all_vault_snapshots",
@@ -88,66 +107,39 @@ export async function handleToolCall(
   try {
     switch (name) {
       case "get_all_vault_snapshots": {
-        // Use the getVaults function to get all vault stats in one call
-        try {
-          const allVaults = await getVaults(apiClient);
-          return allVaults;
-        } catch {
-          // Fallback: fetch each vault individually
-          const results: Record<string, unknown> = {};
-          for (const [vaultId, config] of Object.entries(VAULTS)) {
-            try {
-              const network = getNetwork(config.chains[0]);
-              const snapshot = await getVaultSnapshot(
-                apiClient,
-                network,
-                config.address as Address
-              );
-              results[vaultId] = snapshot;
-            } catch (e) {
-              results[vaultId] = { error: `Failed to fetch: ${e}` };
-            }
-          }
-          return results;
-        }
+        const allVaults = await getVaults(apiClient);
+        return allVaults;
       }
 
       case "get_vault_yield_history": {
-        const vaultId = input.vault_id as VaultId;
-        const config = VAULTS[vaultId];
-        if (!config) return { error: "Unknown vault" };
-        const network = getNetwork(config.chains[0]);
-        const history = await getVaultYieldTimeseries(
-          apiClient,
-          network,
-          config.address as Address
-        );
-        return { vault: vaultId, history: history.slice(-30) }; // last 30 data points
+        const vaultId = input.vault_id as string;
+        const network = VAULT_NETWORK[vaultId];
+        const address = VAULT_ADDRESSES[vaultId];
+        if (!network || !address) return { error: "Unknown vault" };
+        const history = await getVaultYieldTimeseries(apiClient, network, address);
+        return { vault: vaultId, history: history.slice(-30) };
       }
 
       case "get_vault_tvl_history": {
-        const vaultId = input.vault_id as VaultId;
-        const config = VAULTS[vaultId];
-        if (!config) return { error: "Unknown vault" };
-        const network = getNetwork(config.chains[0]);
-        const history = await getVaultTvlTimeseries(
-          apiClient,
-          network,
-          config.address as Address
-        );
+        const vaultId = input.vault_id as string;
+        const network = VAULT_NETWORK[vaultId];
+        const address = VAULT_ADDRESSES[vaultId];
+        if (!network || !address) return { error: "Unknown vault" };
+        const history = await getVaultTvlTimeseries(apiClient, network, address);
         return { vault: vaultId, history: history.slice(-30) };
       }
 
       case "get_user_positions": {
         const userAddress = input.user_address as string;
         const positions: Record<string, unknown> = {};
-        for (const [vaultId, config] of Object.entries(VAULTS)) {
+        for (const [vaultId, address] of Object.entries(VAULT_ADDRESSES)) {
           try {
-            const network = getNetwork(config.chains[0]);
+            const network = VAULT_NETWORK[vaultId];
+            if (!network) continue;
             const history = await getUserTransactionHistory(
               apiClient,
               network,
-              config.address as Address,
+              address,
               userAddress as Address,
               5
             );

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import Anthropic from "@anthropic-ai/sdk";
-import { getVaultTools, handleToolCall } from "../tools/vault-tools";
+import { getVaultTools, handleToolCall } from "../tools/vault-tools.js";
 
 const baseURL = process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
 const apiKey = process.env.ANTHROPIC_API_KEY || "";

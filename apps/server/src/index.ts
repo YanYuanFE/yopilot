@@ -1,8 +1,8 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { chatRoute } from "./routes/chat";
-import { vaultsRoute } from "./routes/vaults";
+import { chatRoute } from "./routes/chat.js";
+import { vaultsRoute } from "./routes/vaults.js";
 
 const app = new Hono();
 
