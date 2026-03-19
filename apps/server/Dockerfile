@@ -1,23 +1,26 @@
 FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Dependencies
+# ── Dependencies ──
 FROM base AS deps
 WORKDIR /app
+RUN echo "node-linker=hoisted" > .npmrc
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/server/package.json ./apps/server/
-RUN echo "node-linker=hoisted" > .npmrc
 RUN pnpm install --frozen-lockfile
 
-# Build
+# ── Build ──
 FROM base AS builder
 WORKDIR /app
+# Copy workspace config so pnpm can resolve
+COPY --from=deps /app/.npmrc ./
 COPY --from=deps /app/node_modules ./node_modules
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/server ./apps/server
 WORKDIR /app/apps/server
 RUN pnpm build
 
-# Production
+# ── Production ──
 FROM node:20-alpine AS runner
 WORKDIR /app
 
