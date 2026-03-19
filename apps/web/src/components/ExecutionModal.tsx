@@ -12,7 +12,7 @@ import { useChatStore } from "@/store/chat-store";
 import { useVaultStore } from "@/store/vault-store";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
-import { prepareDepositWithApproval } from "@yo-protocol/core";
+import { prepareApprove, prepareDeposit } from "@yo-protocol/core";
 import { DepositStepRow, type DepositStepState } from "./DepositStepRow";
 import { SOURCE_TOKENS, VAULT_CONFIG, type TokenConfig } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
@@ -60,11 +60,66 @@ export function ExecutionModal() {
     if (!isConnected || !walletClient || !publicClient || !address) return;
     setPhase("executing");
 
+    const YO_GATEWAY = "0xF1EeE0957267b1A474323Ff9CfF7719E964969FA" as const;
+    const MAX_UINT256 = 2n ** 256n - 1n;
+    const totalParsed = BigInt(
+      Math.floor(total * 10 ** selectedToken.decimals)
+    );
+
+    // Step 0: One-time unlimited approve for Gateway
+    try {
+      updateStep(0, { status: "active", step: "approving" });
+
+      const allowance = await publicClient.readContract({
+        address: selectedToken.address,
+        abi: [{ name: "allowance", type: "function", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ name: "", type: "uint256" }] }],
+        functionName: "allowance",
+        args: [address, YO_GATEWAY],
+      }) as bigint;
+
+      if (allowance < totalParsed) {
+        const approveTx = prepareApprove({
+          token: selectedToken.address,
+          spender: YO_GATEWAY,
+          amount: MAX_UINT256,
+        });
+        const approveHash = await walletClient.sendTransaction({
+          to: approveTx.to,
+          data: approveTx.data,
+          value: approveTx.value,
+          chain: null,
+          account: address,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+      }
+    } catch (err: any) {
+      // If approve fails, abort all
+      for (let i = 0; i < allocations.length; i++) {
+        updateStep(i, { status: "error", step: "error", errorMsg: err?.shortMessage || "Approve failed" });
+      }
+      setPhase("done");
+      return;
+    }
+
+    // Step 1..N: Deposit into each vault (no more approve needed)
+    const connectedChainId = await walletClient.getChainId();
+
     for (let i = 0; i < allocations.length; i++) {
       const alloc = allocations[i];
       const vaultConfig = VAULT_CONFIG[alloc.vault];
       if (!vaultConfig) {
         updateStep(i, { status: "error", step: "error", errorMsg: `Unknown vault: ${alloc.vault}` });
+        continue;
+      }
+
+      // Skip vaults on different chains (shouldn't happen if AI respects chain rules)
+      if (vaultConfig.chainId !== connectedChainId) {
+        console.warn(`[YoPilot] Skipping ${alloc.vault}: on chain ${vaultConfig.chainId}, connected to ${connectedChainId}`);
+        updateStep(i, {
+          status: "error",
+          step: "error",
+          errorMsg: `Switch to ${vaultConfig.chainId === 1 ? "Ethereum" : "Base"} to deposit`,
+        });
         continue;
       }
 
@@ -78,45 +133,40 @@ export function ExecutionModal() {
         continue;
       }
 
-      updateStep(i, { status: "active", step: "approving" });
+      updateStep(i, { status: "active", step: "depositing" });
 
       try {
-        // Prepare transactions (1-2: optional approve + deposit)
-        const txs = await prepareDepositWithApproval(publicClient as any, {
+        console.log(`[YoPilot] Depositing ${amount} ${selectedToken.symbol} into ${alloc.vault} (${vaultConfig.address}) on chain ${vaultConfig.chainId}`);
+
+        const depositTx = await prepareDeposit(publicClient as any, {
           vault: vaultConfig.address,
-          token: selectedToken.address,
           amount: parsedAmount,
           recipient: address,
-          owner: address,
           slippageBps: 50,
         });
 
-        let lastHash: string | undefined;
-        for (let t = 0; t < txs.length; t++) {
-          const tx = txs[t];
-          const isApprove = t < txs.length - 1;
-          updateStep(i, { step: isApprove ? "approving" : "depositing" });
+        console.log(`[YoPilot] Prepared deposit tx:`, depositTx);
 
-          const hash = await walletClient.sendTransaction({
-            to: tx.to,
-            data: tx.data,
-            value: tx.value,
-            chain: null,
-            account: address,
-          });
+        const depositHash = await walletClient.sendTransaction({
+          to: depositTx.to,
+          data: depositTx.data,
+          value: depositTx.value,
+          chain: null,
+          account: address,
+        });
 
-          // Wait for confirmation
-          updateStep(i, { step: "waiting" });
-          await publicClient.waitForTransactionReceipt({ hash });
-          lastHash = hash;
-        }
+        console.log(`[YoPilot] Deposit tx sent:`, depositHash);
+
+        updateStep(i, { step: "waiting" });
+        await publicClient.waitForTransactionReceipt({ hash: depositHash });
 
         updateStep(i, {
           status: "success",
           step: "success",
-          txHash: lastHash,
+          txHash: depositHash,
         });
       } catch (err: any) {
+        console.error(`[YoPilot] Deposit to ${alloc.vault} failed:`, err);
         const msg = err?.shortMessage || err?.message || "Transaction failed";
         updateStep(i, {
           status: "error",

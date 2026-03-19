@@ -27,7 +27,7 @@ function stripAllocationBlock(text: string): string {
 export function ChatPanel() {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { address } = useAccount();
+  const { address, chain } = useAccount();
   const {
     messages,
     isLoading,
@@ -60,7 +60,8 @@ export function ChatPanel() {
         role: m.role,
         content:
           m.role === "user" && address
-            ? `[User wallet: ${address}]\n${m.content}`
+            ? `[User wallet: ${address}, Connected chain: ${chain?.name || "unknown"} (chainId: ${chain?.id || "?"})]
+${m.content}`
             : m.content,
       }));
 
