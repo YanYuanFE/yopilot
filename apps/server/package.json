@@ -1,0 +1,22 @@
+{
+  "name": "server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "@hono/node-server": "^1.19.11",
+    "@yo-protocol/core": "^1.0.9",
+    "hono": "^4.12.8",
+    "viem": "^2.47.5"
+  }
+}
